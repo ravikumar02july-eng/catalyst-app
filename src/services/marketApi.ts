@@ -1,4 +1,4 @@
-import { marketOverview, screenerResults, watchlist, marketAlerts, portfolioHoldings } from './mockData';
+import { marketOverview, screenerResults, watchlist, marketAlerts, portfolioHoldings } from '../data/mockData';
 import { MarketOverview, Stock, AlertItem, PortfolioHolding, PatternInsight } from '../types';
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
