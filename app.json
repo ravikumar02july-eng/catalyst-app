@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Catalyst",
+    "slug": "catalyst-app",
+    "scheme": "catalyst-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.catalyst.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1220"
+      }
+    }
+  }
+}
