@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,167 +11,232 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../theme';
 import { getPatternInsights } from '../services/marketApi';
-import { PatternInsight } from '../types';
+import { PatternInsight, SignalDirection } from '../types';
+
+const filters: Array<'All' | SignalDirection> = ['All', 'Upward', 'Downward', 'Neutral'];
 
 export default function ScreenerScreen() {
   const navigation = useNavigation<any>();
   const [items, setItems] = useState<PatternInsight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState<'All' | SignalDirection>('All');
 
-  useEffect(() => {
-    let mounted = true;
+  const load = useCallback(async (refresh = false) => {
+    if (refresh) setRefreshing(true);
+    else setLoading(true);
+    setError('');
 
-    const load = async () => {
-      try {
-        const insights = await getPatternInsights();
-        if (mounted) setItems([...insights].sort((a, b) => b.confidence - a.confidence));
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    load();
-    return () => {
-      mounted = false;
-    };
+    try {
+      const results = await getPatternInsights();
+      setItems(results.slice().sort((a, b) => Math.abs(b.score) - Math.abs(a.score)));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load scanner results.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const visibleItems = useMemo(
+    () => selectedFilter === 'All' ? items : items.filter((item) => item.direction === selectedFilter),
+    [items, selectedFilter],
+  );
+  const upCount = items.filter((item) => item.direction === 'Upward').length;
+  const downCount = items.filter((item) => item.direction === 'Downward').length;
+  const neutralCount = items.filter((item) => item.direction === 'Neutral').length;
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.green} />}
+    >
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>MARKET SIGNALS</Text>
           <Text style={styles.title}>Scanner</Text>
         </View>
-        <View style={styles.liveBadge}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>Pattern scan</Text>
+        <TouchableOpacity style={styles.refreshButton} onPress={() => load(true)} disabled={loading || refreshing}>
+          <Text style={styles.refreshText}>{refreshing ? 'Updating…' : '↻ Refresh'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.sourceBanner}>
+        <View style={styles.sourceDot} />
+        <Text style={styles.sourceText}>Scanner ready · market data provider can be connected separately</Text>
+      </View>
+
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Upward</Text>
+          <Text style={[styles.summaryValue, { color: colors.green }]}>{upCount}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Downward</Text>
+          <Text style={[styles.summaryValue, { color: colors.red }]}>{downCount}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Neutral</Text>
+          <Text style={styles.summaryValue}>{neutralCount}</Text>
         </View>
       </View>
 
       <View style={styles.notice}>
-        <Text style={styles.noticeTitle}>Directional analysis, not a prediction</Text>
+        <Text style={styles.noticeTitle}>Rule-based technical signals</Text>
         <Text style={styles.noticeBody}>
-          Signals are heuristic chart summaries and are not statistically validated probabilities or financial advice.
+          These summaries describe recent price patterns. Signal strength is not a probability or a guaranteed forecast, and this is not financial advice.
         </Text>
       </View>
 
+      <View style={styles.filters}>
+        {filters.map((filter) => (
+          <TouchableOpacity
+            key={filter}
+            onPress={() => setSelectedFilter(filter)}
+            style={[styles.filterChip, selectedFilter === filter && styles.activeFilterChip]}
+          >
+            <Text style={[styles.filterText, selectedFilter === filter && styles.activeFilterText]}>{filter}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       {loading ? (
-        <View style={styles.loading}>
+        <View style={styles.stateCard}>
           <ActivityIndicator color={colors.green} />
-          <Text style={styles.loadingText}>Analyzing chart patterns…</Text>
+          <Text style={styles.stateText}>Scanning recent price patterns…</Text>
         </View>
-      ) : items.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>No scanner results</Text>
-          <Text style={styles.emptyText}>Try again when market data is available.</Text>
+      ) : error ? (
+        <View style={styles.stateCard}>
+          <Text style={styles.stateTitle}>Couldn’t load scanner</Text>
+          <Text style={styles.stateText}>{error}</Text>
+          <TouchableOpacity style={styles.tryAgainButton} onPress={() => load()}>
+            <Text style={styles.tryAgainText}>Try again</Text>
+          </TouchableOpacity>
         </View>
-      ) : (
-        items.map((insight) => {
-          const upward = insight.direction === 'Upward';
-          const downward = insight.direction === 'Downward';
-          const signalColor = upward ? colors.green : downward ? colors.red : colors.blue;
-
-          return (
-            <TouchableOpacity
-              key={insight.symbol}
-              activeOpacity={0.85}
-              style={styles.card}
-              onPress={() => navigation.navigate('StockDetail', { symbol: insight.symbol, name: insight.name })}
-            >
-              <View style={styles.cardHeader}>
-                <View style={styles.stockIdentity}>
-                  <Text style={styles.symbol}>{insight.symbol}</Text>
-                  <Text style={styles.companyName} numberOfLines={1}>{insight.name}</Text>
-                </View>
-                <View style={[styles.directionBadge, { borderColor: signalColor }]}>
-                  <Text style={[styles.directionText, { color: signalColor }]}>
-                    {upward ? '↑ UPWARD' : downward ? '↓ DOWNWARD' : '↔ NEUTRAL'}
-                  </Text>
-                </View>
+      ) : visibleItems.length === 0 ? (
+        <View style={styles.stateCard}>
+          <Text style={styles.stateTitle}>No matching stocks</Text>
+          <Text style={styles.stateText}>Choose another direction filter.</Text>
+        </View>
+      ) : visibleItems.map((insight) => {
+        const signalColor = insight.direction === 'Upward'
+          ? colors.green
+          : insight.direction === 'Downward' ? colors.red : colors.blue;
+        return (
+          <TouchableOpacity
+            key={insight.symbol}
+            activeOpacity={0.85}
+            style={styles.stockCard}
+            onPress={() => navigation.navigate('StockDetail', { symbol: insight.symbol, name: insight.name })}
+          >
+            <View style={styles.cardHeader}>
+              <View style={styles.stockIdentity}>
+                <Text style={styles.symbol}>{insight.symbol}</Text>
+                <Text style={styles.name} numberOfLines={1}>{insight.name}</Text>
               </View>
-
-              <View style={styles.priceRow}>
-                <Text style={styles.lastPrice}>${insight.lastPrice.toFixed(2)}</Text>
-                <Text style={[styles.change, { color: insight.changePercent >= 0 ? colors.green : colors.red }]}>
-                  {insight.changePercent >= 0 ? '+' : ''}{insight.changePercent.toFixed(2)}%
+              <View style={[styles.directionBadge, { borderColor: signalColor }]}>
+                <Text style={[styles.directionText, { color: signalColor }]}>
+                  {insight.direction === 'Upward' ? '↑ UPWARD' : insight.direction === 'Downward' ? '↓ DOWNWARD' : '↔ NEUTRAL'}
                 </Text>
               </View>
+            </View>
 
-              <View style={styles.patternRow}>
-                <Text style={styles.patternLabel}>Chart pattern</Text>
-                <Text style={styles.patternName}>{insight.pattern}</Text>
-              </View>
+            <View style={styles.priceRow}>
+              <Text style={styles.price}>${insight.lastPrice.toFixed(2)}</Text>
+              <Text style={[styles.change, { color: insight.changePercent >= 0 ? colors.green : colors.red }]}>
+                {insight.changePercent >= 0 ? '+' : ''}{insight.changePercent.toFixed(2)}%
+              </Text>
+            </View>
 
-              <View style={styles.confidenceHeader}>
-                <Text style={styles.metaLabel}>Signal strength</Text>
-                <Text style={[styles.confidence, { color: signalColor }]}>{insight.confidence}%</Text>
-              </View>
-              <View style={styles.track}>
-                <View style={[styles.fill, { width: `${insight.confidence}%`, backgroundColor: signalColor }]} />
-              </View>
+            <View style={styles.patternRow}>
+              <Text style={styles.mutedLabel}>Pattern</Text>
+              <Text style={styles.pattern}>{insight.pattern}</Text>
+            </View>
 
-              <Text style={styles.expectedMove}>{insight.expectedMove}</Text>
-              <View style={styles.levelsRow}>
-                <View style={styles.levelBox}>
-                  <Text style={styles.levelLabel}>Support</Text>
-                  <Text style={styles.levelValue}>${insight.support.toFixed(2)}</Text>
-                </View>
-                <View style={styles.levelDivider} />
-                <View style={styles.levelBox}>
-                  <Text style={styles.levelLabel}>Resistance</Text>
-                  <Text style={styles.levelValue}>${insight.resistance.toFixed(2)}</Text>
-                </View>
+            <View style={styles.strengthHeader}>
+              <Text style={styles.mutedLabel}>Signal strength</Text>
+              <Text style={[styles.strengthValue, { color: signalColor }]}>{insight.confidence}/100</Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(0, insight.confidence))}%`, backgroundColor: signalColor }]} />
+            </View>
+
+            <Text style={styles.expectedMove}>{insight.expectedMove}</Text>
+            <View style={styles.levelsRow}>
+              <View style={styles.level}>
+                <Text style={styles.levelLabel}>Sample support</Text>
+                <Text style={styles.levelValue}>${insight.support.toFixed(2)}</Text>
               </View>
-              <Text style={styles.note}>{insight.note}</Text>
-            </TouchableOpacity>
-          );
-        })
-      )}
+              <View style={styles.levelDivider} />
+              <View style={styles.level}>
+                <Text style={styles.levelLabel}>Sample resistance</Text>
+                <Text style={styles.levelValue}>${insight.resistance.toFixed(2)}</Text>
+              </View>
+            </View>
+            <Text style={styles.note}>{insight.note}</Text>
+          </TouchableOpacity>
+        );
+      })}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { paddingHorizontal: 18, paddingTop: 28, paddingBottom: 36 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
+  content: { paddingHorizontal: 18, paddingTop: 26, paddingBottom: 36 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   eyebrow: { color: colors.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
   title: { color: colors.text, fontSize: 30, fontWeight: '800', marginTop: 3 },
-  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.panel, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 8 },
-  liveDot: { width: 7, height: 7, borderRadius: 5, backgroundColor: colors.green, marginRight: 7 },
-  liveText: { color: colors.muted, fontSize: 11, fontWeight: '600' },
-  notice: { backgroundColor: '#111A2A', borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 16 },
+  refreshButton: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12 },
+  refreshText: { color: colors.text, fontWeight: '700', fontSize: 12 },
+  sourceBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.panel, borderRadius: 10, padding: 10, marginBottom: 13 },
+  sourceDot: { width: 7, height: 7, borderRadius: 5, backgroundColor: colors.blue, marginRight: 8 },
+  sourceText: { color: colors.muted, fontSize: 10, flex: 1 },
+  summaryRow: { flexDirection: 'row', gap: 8, marginBottom: 13 },
+  summaryCard: { flex: 1, backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 13, padding: 11 },
+  summaryLabel: { color: colors.muted, fontSize: 10 },
+  summaryValue: { color: colors.text, fontSize: 20, fontWeight: '800', marginTop: 4 },
+  notice: { backgroundColor: '#111A2A', borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 14 },
   noticeTitle: { color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4 },
-  noticeBody: { color: colors.muted, fontSize: 11, lineHeight: 16 },
-  loading: { padding: 28, alignItems: 'center' },
-  loadingText: { color: colors.muted, marginTop: 10, fontSize: 12 },
-  emptyCard: { backgroundColor: colors.card, borderRadius: 16, padding: 20, alignItems: 'center' },
-  emptyTitle: { color: colors.text, fontWeight: '700', fontSize: 16 },
-  emptyText: { color: colors.muted, marginTop: 6, fontSize: 12 },
-  card: { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 13 },
+  noticeBody: { color: colors.muted, fontSize: 10, lineHeight: 15 },
+  filters: { flexDirection: 'row', gap: 7, marginBottom: 14 },
+  filterChip: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  activeFilterChip: { backgroundColor: '#0F3B35', borderColor: colors.green },
+  filterText: { color: colors.muted, fontSize: 11, fontWeight: '600' },
+  activeFilterText: { color: colors.green },
+  stateCard: { backgroundColor: colors.card, borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+  stateTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  stateText: { color: colors.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 9 },
+  tryAgainButton: { marginTop: 12, backgroundColor: colors.green, paddingHorizontal: 15, paddingVertical: 9, borderRadius: 10 },
+  tryAgainText: { color: colors.background, fontWeight: '800', fontSize: 12 },
+  stockCard: { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 13 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   stockIdentity: { flex: 1, marginRight: 8 },
   symbol: { color: colors.text, fontSize: 19, fontWeight: '800' },
-  companyName: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  name: { color: colors.muted, fontSize: 11, marginTop: 3 },
   directionBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6 },
   directionText: { fontSize: 10, fontWeight: '800' },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 14, marginBottom: 14 },
-  lastPrice: { color: colors.text, fontSize: 24, fontWeight: '800' },
+  priceRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 14, marginBottom: 13 },
+  price: { color: colors.text, fontSize: 24, fontWeight: '800' },
   change: { fontSize: 12, fontWeight: '700', marginLeft: 9 },
   patternRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
-  patternLabel: { color: colors.muted, fontSize: 11 },
-  patternName: { color: colors.text, fontSize: 11, fontWeight: '700' },
-  confidenceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 },
-  metaLabel: { color: colors.muted, fontSize: 11 },
-  confidence: { fontSize: 12, fontWeight: '800' },
-  track: { height: 6, backgroundColor: colors.panel, borderRadius: 8, overflow: 'hidden' },
-  fill: { height: 6, borderRadius: 8 },
-  expectedMove: { color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 13, marginBottom: 12 },
+  mutedLabel: { color: colors.muted, fontSize: 11 },
+  pattern: { color: colors.text, fontSize: 11, fontWeight: '700' },
+  strengthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 },
+  strengthValue: { fontSize: 12, fontWeight: '800' },
+  progressTrack: { height: 6, backgroundColor: colors.panel, borderRadius: 8, overflow: 'hidden' },
+  progressFill: { height: 6, borderRadius: 8 },
+  expectedMove: { color: colors.text, fontSize: 11, fontWeight: '700', marginTop: 13, marginBottom: 12 },
   levelsRow: { flexDirection: 'row', backgroundColor: colors.panel, borderRadius: 12, paddingVertical: 10 },
-  levelBox: { flex: 1, alignItems: 'center' },
+  level: { flex: 1, alignItems: 'center' },
   levelDivider: { width: 1, backgroundColor: colors.border },
-  levelLabel: { color: colors.muted, fontSize: 10, marginBottom: 4 },
+  levelLabel: { color: colors.muted, fontSize: 9, marginBottom: 4 },
   levelValue: { color: colors.text, fontSize: 12, fontWeight: '700' },
   note: { color: colors.muted, fontSize: 10, lineHeight: 15, marginTop: 11 },
 });
