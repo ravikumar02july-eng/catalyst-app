@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../theme';
-import { getPatternInsights } from '../services/marketApi';
+import { getPatternInsights, isBreezeMarketDataConfigured } from '../services/marketApi';
 import { PatternInsight, SignalDirection } from '../types';
 
 const filters: Array<'All' | SignalDirection> = ['All', 'Upward', 'Downward', 'Neutral'];
@@ -27,7 +27,6 @@ export default function ScreenerScreen() {
     if (refresh) setRefreshing(true);
     else setLoading(true);
     setError('');
-
     try {
       const results = await getPatternInsights();
       setItems(results.slice().sort((a, b) => Math.abs(b.score) - Math.abs(a.score)));
@@ -39,17 +38,13 @@ export default function ScreenerScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const visibleItems = useMemo(
     () => selectedFilter === 'All' ? items : items.filter((item) => item.direction === selectedFilter),
     [items, selectedFilter],
   );
-  const upCount = items.filter((item) => item.direction === 'Upward').length;
-  const downCount = items.filter((item) => item.direction === 'Downward').length;
-  const neutralCount = items.filter((item) => item.direction === 'Neutral').length;
+  const count = (direction: SignalDirection) => items.filter((item) => item.direction === direction).length;
 
   return (
     <ScrollView
@@ -58,126 +53,67 @@ export default function ScreenerScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.green} />}
     >
       <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>MARKET SIGNALS</Text>
-          <Text style={styles.title}>Scanner</Text>
-        </View>
+        <View><Text style={styles.eyebrow}>MARKET SIGNALS</Text><Text style={styles.title}>Scanner</Text></View>
         <TouchableOpacity style={styles.refreshButton} onPress={() => load(true)} disabled={loading || refreshing}>
           <Text style={styles.refreshText}>{refreshing ? 'Updating…' : '↻ Refresh'}</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.sourceBanner}>
-        <View style={styles.sourceDot} />
-        <Text style={styles.sourceText}>Scanner ready · market data provider can be connected separately</Text>
+        <View style={[styles.sourceDot, isBreezeMarketDataConfigured() ? styles.configuredDot : styles.sampleDot]} />
+        <Text style={styles.sourceText}>
+          {isBreezeMarketDataConfigured() ? 'Breeze endpoint configured · values depend on backend session' : 'Sample market data · Breeze can be connected when backend is configured'}
+        </Text>
       </View>
 
       <View style={styles.summaryRow}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Upward</Text>
-          <Text style={[styles.summaryValue, { color: colors.green }]}>{upCount}</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Downward</Text>
-          <Text style={[styles.summaryValue, { color: colors.red }]}>{downCount}</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Neutral</Text>
-          <Text style={styles.summaryValue}>{neutralCount}</Text>
-        </View>
+        <SummaryCard label="Upward" value={count('Upward')} color={colors.green} />
+        <SummaryCard label="Downward" value={count('Downward')} color={colors.red} />
+        <SummaryCard label="Neutral" value={count('Neutral')} color={colors.text} />
       </View>
 
       <View style={styles.notice}>
         <Text style={styles.noticeTitle}>Rule-based technical signals</Text>
-        <Text style={styles.noticeBody}>
-          These summaries describe recent price patterns. Signal strength is not a probability or a guaranteed forecast, and this is not financial advice.
-        </Text>
+        <Text style={styles.noticeBody}>Pattern and signal strength summarize recent closing prices. Strength is not a probability or guaranteed forecast; this is not financial advice.</Text>
       </View>
 
       <View style={styles.filters}>
         {filters.map((filter) => (
-          <TouchableOpacity
-            key={filter}
-            onPress={() => setSelectedFilter(filter)}
-            style={[styles.filterChip, selectedFilter === filter && styles.activeFilterChip]}
-          >
+          <TouchableOpacity key={filter} onPress={() => setSelectedFilter(filter)} style={[styles.filterChip, selectedFilter === filter && styles.activeFilterChip]}>
             <Text style={[styles.filterText, selectedFilter === filter && styles.activeFilterText]}>{filter}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       {loading ? (
-        <View style={styles.stateCard}>
-          <ActivityIndicator color={colors.green} />
-          <Text style={styles.stateText}>Scanning recent price patterns…</Text>
-        </View>
+        <View style={styles.stateCard}><ActivityIndicator color={colors.green} /><Text style={styles.stateText}>Scanning recent price patterns…</Text></View>
       ) : error ? (
         <View style={styles.stateCard}>
-          <Text style={styles.stateTitle}>Couldn’t load scanner</Text>
-          <Text style={styles.stateText}>{error}</Text>
-          <TouchableOpacity style={styles.tryAgainButton} onPress={() => load()}>
-            <Text style={styles.tryAgainText}>Try again</Text>
-          </TouchableOpacity>
+          <Text style={styles.stateTitle}>Couldn’t load scanner</Text><Text style={styles.stateText}>{error}</Text>
+          <TouchableOpacity style={styles.tryAgainButton} onPress={() => load()}><Text style={styles.tryAgainText}>Try again</Text></TouchableOpacity>
         </View>
       ) : visibleItems.length === 0 ? (
-        <View style={styles.stateCard}>
-          <Text style={styles.stateTitle}>No matching stocks</Text>
-          <Text style={styles.stateText}>Choose another direction filter.</Text>
-        </View>
+        <View style={styles.stateCard}><Text style={styles.stateTitle}>No matching stocks</Text><Text style={styles.stateText}>Choose another direction filter.</Text></View>
       ) : visibleItems.map((insight) => {
-        const signalColor = insight.direction === 'Upward'
-          ? colors.green
-          : insight.direction === 'Downward' ? colors.red : colors.blue;
+        const signalColor = insight.direction === 'Upward' ? colors.green : insight.direction === 'Downward' ? colors.red : colors.blue;
         return (
-          <TouchableOpacity
-            key={insight.symbol}
-            activeOpacity={0.85}
-            style={styles.stockCard}
-            onPress={() => navigation.navigate('StockDetail', { symbol: insight.symbol, name: insight.name })}
-          >
+          <TouchableOpacity key={insight.symbol} activeOpacity={0.85} style={styles.stockCard} onPress={() => navigation.navigate('StockDetail', { symbol: insight.symbol, name: insight.name })}>
             <View style={styles.cardHeader}>
-              <View style={styles.stockIdentity}>
-                <Text style={styles.symbol}>{insight.symbol}</Text>
-                <Text style={styles.name} numberOfLines={1}>{insight.name}</Text>
-              </View>
-              <View style={[styles.directionBadge, { borderColor: signalColor }]}>
-                <Text style={[styles.directionText, { color: signalColor }]}>
-                  {insight.direction === 'Upward' ? '↑ UPWARD' : insight.direction === 'Downward' ? '↓ DOWNWARD' : '↔ NEUTRAL'}
-                </Text>
-              </View>
+              <View style={styles.stockIdentity}><Text style={styles.symbol}>{insight.symbol}</Text><Text style={styles.name} numberOfLines={1}>{insight.name}</Text></View>
+              <View style={[styles.directionBadge, { borderColor: signalColor }]}><Text style={[styles.directionText, { color: signalColor }]}>{insight.direction === 'Upward' ? '↑ UPWARD' : insight.direction === 'Downward' ? '↓ DOWNWARD' : '↔ NEUTRAL'}</Text></View>
             </View>
-
             <View style={styles.priceRow}>
-              <Text style={styles.price}>${insight.lastPrice.toFixed(2)}</Text>
-              <Text style={[styles.change, { color: insight.changePercent >= 0 ? colors.green : colors.red }]}>
-                {insight.changePercent >= 0 ? '+' : ''}{insight.changePercent.toFixed(2)}%
-              </Text>
+              <Text style={styles.price}>₹{insight.lastPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</Text>
+              <Text style={[styles.change, { color: insight.changePercent >= 0 ? colors.green : colors.red }]}>{insight.changePercent >= 0 ? '+' : ''}{insight.changePercent.toFixed(2)}%</Text>
             </View>
-
-            <View style={styles.patternRow}>
-              <Text style={styles.mutedLabel}>Pattern</Text>
-              <Text style={styles.pattern}>{insight.pattern}</Text>
-            </View>
-
-            <View style={styles.strengthHeader}>
-              <Text style={styles.mutedLabel}>Signal strength</Text>
-              <Text style={[styles.strengthValue, { color: signalColor }]}>{insight.confidence}/100</Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(0, insight.confidence))}%`, backgroundColor: signalColor }]} />
-            </View>
-
+            <View style={styles.patternRow}><Text style={styles.mutedLabel}>Pattern</Text><Text style={styles.pattern}>{insight.pattern}</Text></View>
+            <View style={styles.strengthHeader}><Text style={styles.mutedLabel}>Signal strength</Text><Text style={[styles.strengthValue, { color: signalColor }]}>{insight.confidence}/100</Text></View>
+            <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.min(100, Math.max(0, insight.confidence))}%`, backgroundColor: signalColor }]} /></View>
             <Text style={styles.expectedMove}>{insight.expectedMove}</Text>
             <View style={styles.levelsRow}>
-              <View style={styles.level}>
-                <Text style={styles.levelLabel}>Sample support</Text>
-                <Text style={styles.levelValue}>${insight.support.toFixed(2)}</Text>
-              </View>
+              <View style={styles.level}><Text style={styles.levelLabel}>Sample support</Text><Text style={styles.levelValue}>₹{insight.support.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</Text></View>
               <View style={styles.levelDivider} />
-              <View style={styles.level}>
-                <Text style={styles.levelLabel}>Sample resistance</Text>
-                <Text style={styles.levelValue}>${insight.resistance.toFixed(2)}</Text>
-              </View>
+              <View style={styles.level}><Text style={styles.levelLabel}>Sample resistance</Text><Text style={styles.levelValue}>₹{insight.resistance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</Text></View>
             </View>
             <Text style={styles.note}>{insight.note}</Text>
           </TouchableOpacity>
@@ -185,6 +121,10 @@ export default function ScreenerScreen() {
       })}
     </ScrollView>
   );
+}
+
+function SummaryCard({ label, value, color }: { label: string; value: number; color: string }) {
+  return <View style={styles.summaryCard}><Text style={styles.summaryLabel}>{label}</Text><Text style={[styles.summaryValue, { color }]}>{value}</Text></View>;
 }
 
 const styles = StyleSheet.create({
@@ -196,12 +136,14 @@ const styles = StyleSheet.create({
   refreshButton: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12 },
   refreshText: { color: colors.text, fontWeight: '700', fontSize: 12 },
   sourceBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.panel, borderRadius: 10, padding: 10, marginBottom: 13 },
-  sourceDot: { width: 7, height: 7, borderRadius: 5, backgroundColor: colors.blue, marginRight: 8 },
+  sourceDot: { width: 7, height: 7, borderRadius: 5, marginRight: 8 },
+  configuredDot: { backgroundColor: colors.green },
+  sampleDot: { backgroundColor: colors.blue },
   sourceText: { color: colors.muted, fontSize: 10, flex: 1 },
   summaryRow: { flexDirection: 'row', gap: 8, marginBottom: 13 },
   summaryCard: { flex: 1, backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 13, padding: 11 },
   summaryLabel: { color: colors.muted, fontSize: 10 },
-  summaryValue: { color: colors.text, fontSize: 20, fontWeight: '800', marginTop: 4 },
+  summaryValue: { fontSize: 20, fontWeight: '800', marginTop: 4 },
   notice: { backgroundColor: '#111A2A', borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 14 },
   noticeTitle: { color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 4 },
   noticeBody: { color: colors.muted, fontSize: 10, lineHeight: 15 },
