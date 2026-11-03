@@ -8,6 +8,7 @@ import PortfolioScreen from '../screens/PortfolioScreen';
 import StockDetailScreen from '../screens/StockDetailScreen';
 import AlertsScreen from '../screens/AlertsScreen';
 import LoginScreen from '../screens/LoginScreen';
+import { useAuth } from '../auth/AuthContext';
 import { colors } from '../theme';
 
 const Tab = createBottomTabNavigator();
@@ -28,18 +29,13 @@ function MainTabs() {
           paddingBottom: 10,
           paddingTop: 8,
         },
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '600',
-        },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
         tabBarIcon: ({ color, size, focused }) => {
           let iconName: keyof typeof Ionicons.glyphMap = 'home';
-
           if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
           if (route.name === 'Screener') iconName = focused ? 'options' : 'options-outline';
           if (route.name === 'Watchlist') iconName = focused ? 'star' : 'star-outline';
           if (route.name === 'Portfolio') iconName = focused ? 'pie-chart' : 'pie-chart-outline';
-
           return <Ionicons name={iconName} size={size} color={color} />;
         },
       })}
@@ -52,29 +48,30 @@ function MainTabs() {
   );
 }
 
-export default function AppNavigator() {
+type AppNavigatorProps = { isAuthenticated: boolean };
+
+export default function AppNavigator({ isAuthenticated }: AppNavigatorProps) {
+  const { signOut } = useAuth();
+
   return (
-    <RootStack.Navigator initialRouteName="Login">
-      <RootStack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-      <RootStack.Screen name="MainTabs" component={MainTabs} options={{ headerShown: false }} />
-      <RootStack.Screen
-        name="Alerts"
-        component={AlertsScreen}
-        options={{
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.text,
-          headerTitleAlign: 'center',
-        }}
-      />
-      <RootStack.Screen
-        name="StockDetail"
-        component={StockDetailScreen}
-        options={{
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.text,
-          headerTitleAlign: 'center',
-        }}
-      />
+    <RootStack.Navigator>
+      {!isAuthenticated ? (
+        <RootStack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+      ) : (
+        <>
+          <RootStack.Screen name="MainTabs" component={MainTabs} options={{ headerShown: false }} />
+          <RootStack.Screen
+            name="Alerts"
+            component={AlertsScreen}
+            options={{ headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text, headerTitleAlign: 'center' }}
+          />
+          <RootStack.Screen
+            name="StockDetail"
+            component={StockDetailScreen}
+            options={{ headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text, headerTitleAlign: 'center' }}
+          />
+        </>
+      )}
     </RootStack.Navigator>
   );
 }
